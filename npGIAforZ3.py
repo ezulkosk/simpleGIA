@@ -39,27 +39,19 @@ def setRecordPoint(b):
     global RECORDPOINT
     RECORDPOINT = b
 
-def preventSameModel(cfr, solver, model):
+def preventSameModel(solver, model):
     block = []
-    for i in cfr.cfr_sorts.values():
-        for j in i.instances:
-            block.append(j != int(str(model[j.var])))
-        if i.refs:
-            for j in i.refs:
-                try:
-                    val = model[j.var]
-                except:
-                    #happens if a primitive ref is totally unrestricted
-                    continue 
-                if not val:
-                    continue
-                else:
-                    block.append(j != val)
-
-    if block == []:
-        solver.add(False)
-    else:
-        solver.add(z3.Or(*block))
+    for d in model:
+        # d is a declaration
+        if d.arity() > 0:
+            raise z3.Z3Exception("uninterpreted functions are not suppported")
+        # create a constant from declaration
+        c = d()
+        if z3.is_array(c) or c.sort().kind() == z3.Z3_UNINTERPRETED_SORT:
+            raise z3.Z3Exception("arrays and uninterpreted sorts are not supported")
+        block.append(c != model[d])
+    solver.add(z3.Or(block))
+    
 
 def evalForNum(model, expr):
     val = model.eval(expr)
@@ -101,7 +93,6 @@ class GuidedImprovementAlgorithmOptions(object):
      
 class GuidedImprovementAlgorithm(object):
     def __init__(self, s,  metrics_variables, metrics_objective_direction, decision_variables=[], options=GuidedImprovementAlgorithmOptions()):
-        #self.cfr = cfr_inst
         self.s = s
         self.metrics_variables = metrics_variables
         self.metrics_objective_direction = metrics_objective_direction
@@ -118,10 +109,10 @@ class GuidedImprovementAlgorithm(object):
         equivalentSolutions = []
         equalConstraint = self.ConstraintEqualToX(point)
         self.s.add(equalConstraint)
-        preventSameModel(self.cfr, self.s, point)
+        preventSameModel(self.s, point)
         while(self.s.check() == z3.sat and not(len(equivalentSolutions) + count == self.options.num_models)):                          
             solution = self.s.model()
-            preventSameModel(self.cfr, self.s, solution)
+            preventSameModel(self.s, solution)
             equivalentSolutions.append(solution)
             
         self.s.pop()
@@ -281,9 +272,9 @@ class GuidedImprovementAlgorithm(object):
         DisjunctionOrLessMetrics  = list()
         for i in range(len(self.metrics_variables)):
             if self.metrics_objective_direction[i] == MAXIMIZE:
-                DisjunctionOrLessMetrics.append(self.metrics_variables[i] > model[self.metrics_variables[i]]) #evalForNum(model, self.metrics_variables[i].convert(self.cfr.solver.converter)))#model[self.metrics_variables[i]])
+                DisjunctionOrLessMetrics.append(self.metrics_variables[i] > model[self.metrics_variables[i]]) #evalForNum(model, self.metrics_variables[i].convert(self..solver.converter)))#model[self.metrics_variables[i]])
             else :
-                DisjunctionOrLessMetrics.append(self.metrics_variables[i]< model[self.metrics_variables[i]])#evalForNum(model, self.metrics_variables[i].convert(self.cfr.solver.converter)))#model[self.metrics_variables[i]])
+                DisjunctionOrLessMetrics.append(self.metrics_variables[i]< model[self.metrics_variables[i]])#evalForNum(model, self.metrics_variables[i].convert(self..solver.converter)))#model[self.metrics_variables[i]])
         return z3.Or(*DisjunctionOrLessMetrics)
 
 
@@ -294,13 +285,13 @@ class GuidedImprovementAlgorithm(object):
         """
         EqualMetrics  = list()
         for i in range(len(self.metrics_variables)):
-            EqualMetrics.append(self.metrics_variables[i] == evalForNum(model, self.metrics_variables[i]))
+            EqualMetrics.append(self.metrics_variables[i] == model[self.metrics_variables[i]])
         return z3.And(EqualMetrics)
 
     def get_metric_values(self, model):
         metrics  = list()
         for i in range(len(self.metrics_variables)):
-            strval = str(model.eval(self.metrics_variables[i].convert(self.cfr.solver.converter)))
+            strval = str(model.eval(self.metrics_variables[i]))
             try:
                 val = int(strval)
             except:
